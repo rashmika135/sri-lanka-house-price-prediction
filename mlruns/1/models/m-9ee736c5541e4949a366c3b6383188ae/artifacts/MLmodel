@@ -1,0 +1,23 @@
+artifact_path: file:C:/Users/The User/Doing new projects/Deploy_projects/deploy_House_price_prediction/mlruns/1/models/m-9ee736c5541e4949a366c3b6383188ae/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.skops
+    predict_fn: predict
+    python_version: 3.13.9
+  sklearn:
+    code: null
+    pickled_model: model.skops
+    serialization_format: skops
+    sklearn_version: 1.9.0
+    skops_trusted_types: null
+mlflow_version: 3.15.1
+model_id: m-9ee736c5541e4949a366c3b6383188ae
+model_size_bytes: 88523693
+model_uuid: m-9ee736c5541e4949a366c3b6383188ae
+prompts: null
+run_id: 9e1fc6de2a1946a38c83ac22f02b5fac
+utc_time_created: '2026-08-11 16:28:46.174802'
