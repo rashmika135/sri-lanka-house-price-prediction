@@ -8,36 +8,55 @@ import pandas as pd
 
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import (mean_absolute_error,mean_squared_error,r2_score)
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
+RANDOM_STATE = 67
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PATH = BASE_DIR / "data" / "properties.csv"
 MODEL_PATH = BASE_DIR / "models" / "house_price_model.pkl"
 
 
-# load dataset
+# ---------------------------------------------------
+# Load dataset
+# ---------------------------------------------------
+
 df = pd.read_csv(DATA_PATH)
+
 print("Dataset shape:", df.shape)
 
-# keep only house sale records
+
+# ---------------------------------------------------
+# Keep only houses for sale
+# ---------------------------------------------------
+
 houses_df = df[df["category"] == "Houses For Sale"].copy()
-houses_df = houses_df[houses_df["type"] == "for_sale"]
+
+houses_df = houses_df[
+    houses_df["type"] == "for_sale"
+]
+
 print("Houses dataset shape:", houses_df.shape)
 
-# convert properties column from string to dictionary
+
+# ---------------------------------------------------
+# Extract values from properties column
+# ---------------------------------------------------
+
 def parse_props(x):
     try:
         return ast.literal_eval(x)
     except:
         return {}
 
+
 houses_df["properties"] = houses_df["properties"].apply(parse_props)
-# extract important fetures from properties column
+
+
 houses_df["bedrooms"] = houses_df["properties"].apply(
     lambda x: x.get("Bedrooms")
 )
@@ -54,25 +73,28 @@ houses_df["land_size"] = houses_df["properties"].apply(
     lambda x: x.get("Land size")
 )
 
-houses_df.head(5)
-houses_df.columns
 
+# ---------------------------------------------------
+# Clean bedrooms and bathrooms
+# ---------------------------------------------------
 
-
-
-# convert bedrooms and bathrooms to numbers
 houses_df["bedrooms"] = pd.to_numeric(
-    houses_df["bedrooms"].str.replace("+", "", regex=False)
+    houses_df["bedrooms"]
+    .str.replace("+", "", regex=False),
+    errors="coerce"
 )
 
 houses_df["bathrooms"] = pd.to_numeric(
-    houses_df["bathrooms"].str.replace("+", "", regex=False)
+    houses_df["bathrooms"]
+    .str.replace("+", "", regex=False),
+    errors="coerce"
 )
 
 
-houses_df["bedrooms"].dtype, houses_df["bathrooms"].dtype
+# ---------------------------------------------------
+# Clean price
+# ---------------------------------------------------
 
-#Cleaning price column and converting in to numeric
 houses_df["price"] = pd.to_numeric(
     houses_df["price"]
     .str.replace("Rs", "", regex=False)
@@ -80,23 +102,25 @@ houses_df["price"] = pd.to_numeric(
     errors="coerce"
 )
 
-houses_df["price"].isnull().sum()
-
 houses_df = houses_df.dropna(subset=["price"])
-houses_df["price"].isnull().sum()
 
-#cleanin house_size column and converting in to numeric
-houses_df["house_size"] = (
+
+# ---------------------------------------------------
+# Clean house size
+# ---------------------------------------------------
+
+houses_df["house_size"] = pd.to_numeric(
     houses_df["house_size"]
     .str.replace("sqft", "", regex=False)
-    .str.replace(",", "", regex=False)
-    .astype(float)
+    .str.replace(",", "", regex=False),
+    errors="coerce"
 )
 
-houses_df["house_size"].head()
-houses_df["house_size"].isnull().sum()
 
-#changing acres to perches to
+# ---------------------------------------------------
+# Convert land size into perches
+# ---------------------------------------------------
+
 def convert_land_size(x):
 
     if pd.isna(x):
@@ -105,19 +129,21 @@ def convert_land_size(x):
     x = x.strip()
 
     if "acres" in x:
+
         num = float(
             x.replace("acres", "")
-             .replace(",", "")
-             .strip()
+            .replace(",", "")
+            .strip()
         )
 
         return num * 160
 
     elif "perches" in x:
+
         num = float(
             x.replace("perches", "")
-             .replace(",", "")
-             .strip()
+            .replace(",", "")
+            .strip()
         )
 
         return num
@@ -129,53 +155,128 @@ houses_df["land_size"] = houses_df["land_size"].apply(
     convert_land_size
 )
 
-houses_df["land_size"].head()
-houses_df["land_size"].isnull().sum()
 
-    # convert perches to square feet
-houses_df["land_size"] = houses_df["land_size"] * 272.25
-houses_df["land_size"].head()
-
-#turn price column in to a log target
-houses_df["log_price"] = np.log1p(houses_df["price"])
-
-# Create years_since_posted
-houses_df["posted_date"] = pd.to_datetime(
-    houses_df["posted_date"],
-    errors="coerce"
+# remove missing important values
+houses_df = houses_df.dropna(
+    subset=[
+        "bedrooms",
+        "bathrooms",
+        "house_size",
+        "land_size"
+    ]
 )
 
-houses_df = houses_df.dropna(subset=["posted_date"])
 
-houses_df["years_since_posted"] = (
-    datetime.now().year - houses_df["posted_date"].dt.year
+# remove zero sizes
+houses_df = houses_df[
+    (houses_df["house_size"] != 0) &
+    (houses_df["land_size"] != 0)
+]
+
+
+# ---------------------------------------------------
+# Basic outlier cleaning
+# ---------------------------------------------------
+
+houses_df = houses_df[
+    (houses_df["price"] >= 100000) &
+    (houses_df["price"] < 9e11)
+]
+
+houses_df = houses_df[
+    houses_df["house_size"] <= 20000
+]
+
+
+# ---------------------------------------------------
+# Convert land perches -> square feet
+# ---------------------------------------------------
+
+houses_df["land_size"] = (
+    houses_df["land_size"] * 272.25
 )
 
-houses_df.drop(columns=["posted_date"], inplace=True)
+houses_df = houses_df[
+    houses_df["land_size"] <= 27225
+]
 
-houses_df.drop(columns=["posted_date"], inplace=True)
 
-# create house_size_per_land_size
-houses_df["house_size_per_land_size"] = houses_df["house_size"] / houses_df["land_size"]
+# same 1% - 99% filtering used during experimentation
+for col in ["price", "house_size", "land_size"]:
 
-#Creating exact area column
+    lower = houses_df[col].quantile(0.01)
+    upper = houses_df[col].quantile(0.99)
+
+    houses_df = houses_df[
+        (houses_df[col] >= lower) &
+        (houses_df[col] <= upper)
+    ]
+
+
+# ---------------------------------------------------
+# Log target
+# ---------------------------------------------------
+
+houses_df["log_price"] = np.log1p(
+    houses_df["price"]
+)
+
+
+# ---------------------------------------------------
+# Exact area
+# ---------------------------------------------------
+
 def parse_area(x):
+
     try:
         return ast.literal_eval(x)
-    except Exception as e:
-        print(e)
+
+    except:
         return {}
 
 
-houses_df["area"] = houses_df["area"].apply(parse_area)
+houses_df["area"] = houses_df["area"].apply(
+    parse_area
+)
 
 houses_df["exact_area"] = houses_df["area"].apply(
     lambda x: x.get("name")
 )
 
 
-# preprocessing
-#convert boolean column to 0 and 1
+# ---------------------------------------------------
+# Date feature
+# ---------------------------------------------------
+
+houses_df["posted_date"] = pd.to_datetime(
+    houses_df["posted_date"],
+    errors="coerce"
+)
+
+houses_df = houses_df.dropna(
+    subset=["posted_date"]
+)
+
+houses_df["years_since_posted"] = (
+    datetime.now().year
+    - houses_df["posted_date"].dt.year
+)
+
+
+# ---------------------------------------------------
+# Feature engineering
+# ---------------------------------------------------
+
+houses_df["house_size_per_land_size"] = (
+    houses_df["house_size"]
+    / houses_df["land_size"]
+)
+
+
+# ---------------------------------------------------
+# Boolean columns
+# ---------------------------------------------------
+
 boolean_features = [
     "is_verified",
     "is_member",
@@ -183,6 +284,7 @@ boolean_features = [
 ]
 
 for col in boolean_features:
+
     houses_df[col] = (
         houses_df[col]
         .astype(str)
@@ -190,10 +292,11 @@ for col in boolean_features:
         .eq("true")
         .astype(int)
     )
-    
-for col in boolean_features:
-    print(col, houses_df[col].unique())
-    
+
+
+# ---------------------------------------------------
+# Feature groups
+# ---------------------------------------------------
 
 numeric_features = [
     "bedrooms",
@@ -202,12 +305,6 @@ numeric_features = [
     "land_size",
     "house_size_per_land_size",
     "years_since_posted"
-]
-
-boolean_features = [
-    "is_verified",
-    "is_member",
-    "is_authorized_dealer"
 ]
 
 categorical_features = [
@@ -220,6 +317,7 @@ high_card_features = [
     "exact_area"
 ]
 
+
 feature_cols = (
     numeric_features
     + boolean_features
@@ -227,13 +325,26 @@ feature_cols = (
     + high_card_features
 )
 
+
+# ---------------------------------------------------
+# X and y
+# ---------------------------------------------------
+
 X = houses_df[feature_cols]
 
 y = houses_df["log_price"]
 
+# original price only for evaluation
 y_real = houses_df["price"]
 
-RANDOM_STATE=67
+
+print("Final dataset shape:", X.shape)
+
+
+# ---------------------------------------------------
+# Train / test split
+# ---------------------------------------------------
+
 X_train, X_test, y_train, y_test, _, y_test_real = train_test_split(
     X,
     y,
@@ -242,27 +353,50 @@ X_train, X_test, y_train, y_test, _, y_test_real = train_test_split(
     random_state=RANDOM_STATE
 )
 
+
+# ---------------------------------------------------
+# Preprocessing
+# ---------------------------------------------------
+
 preprocessor = ColumnTransformer(
     transformers=[
-        ("num", StandardScaler(), numeric_features),
 
-        ("bool", "passthrough", boolean_features),
+        (
+            "num",
+            StandardScaler(),
+            numeric_features
+        ),
 
-        ("cat",
-         OneHotEncoder(handle_unknown="ignore"),
-         categorical_features),
+        (
+            "bool",
+            "passthrough",
+            boolean_features
+        ),
 
-        ("cat_highcard",
-         OneHotEncoder(
-             handle_unknown="ignore",
-             max_categories=30
-         ),
-         high_card_features),
+        (
+            "cat",
+            OneHotEncoder(
+                handle_unknown="ignore"
+            ),
+            categorical_features
+        ),
+
+        (
+            "cat_highcard",
+            OneHotEncoder(
+                handle_unknown="ignore",
+                max_categories=30
+            ),
+            high_card_features
+        )
     ]
 )
 
 
-#model development
+# ---------------------------------------------------
+# Final Random Forest
+# ---------------------------------------------------
+
 model = RandomForestRegressor(
     n_estimators=200,
     max_depth=20,
@@ -273,45 +407,109 @@ model = RandomForestRegressor(
     n_jobs=-1
 )
 
+
 final_model = Pipeline([
     ("preprocess", preprocessor),
     ("model", model)
 ])
 
-print("Training model...")
 
-final_model.fit(X_train, y_train)
+# ---------------------------------------------------
+# Train
+# ---------------------------------------------------
+
+print("\nTraining model...")
+
+final_model.fit(
+    X_train,
+    y_train
+)
 
 print("Training completed.")
 
-y_pred_log = final_model.predict(X_test)
-rmse_log = np.sqrt(mean_squared_error(y_test, y_pred_log))
-mae_log = mean_absolute_error(y_test, y_pred_log)
-r2_log = r2_score(y_test, y_pred_log)
 
-y_pred_real = np.expm1(y_pred_log)
+# ---------------------------------------------------
+# Predictions
+# ---------------------------------------------------
 
-rmse = np.sqrt(mean_squared_error(y_test_real, y_pred_real))
-mae = mean_absolute_error(y_test_real, y_pred_real)
-r2 = r2_score(y_test_real, y_pred_real)
+y_pred_log = final_model.predict(
+    X_test
+)
+
+
+# log-space evaluation
+rmse_log = np.sqrt(
+    mean_squared_error(
+        y_test,
+        y_pred_log
+    )
+)
+
+mae_log = mean_absolute_error(
+    y_test,
+    y_pred_log
+)
+
+r2_log = r2_score(
+    y_test,
+    y_pred_log
+)
+
+
+# convert log prediction back to rupees
+y_pred_real = np.expm1(
+    y_pred_log
+)
+
+
+# real-price evaluation
+rmse = np.sqrt(
+    mean_squared_error(
+        y_test_real,
+        y_pred_real
+    )
+)
+
+mae = mean_absolute_error(
+    y_test_real,
+    y_pred_real
+)
+
+r2 = r2_score(
+    y_test_real,
+    y_pred_real
+)
+
 
 print("\nFinal Model Evaluation")
 
 print(
-    f"Log-space -> RMSE: {rmse_log:.4f} | "
+    f"Log-space -> "
+    f"RMSE: {rmse_log:.4f} | "
     f"MAE: {mae_log:.4f} | "
     f"R2: {r2_log:.4f}"
 )
 
 print(
-    f"Price-space -> RMSE: Rs {rmse:,.0f} | "
+    f"Price-space -> "
+    f"RMSE: Rs {rmse:,.0f} | "
     f"MAE: Rs {mae:,.0f} | "
     f"R2: {r2:.4f}"
 )
 
-MODEL_PATH.parent.mkdir(exist_ok=True)
 
-joblib.dump(final_model, MODEL_PATH)
+# ---------------------------------------------------
+# Save model
+# ---------------------------------------------------
 
-print("Model saved to:", MODEL_PATH)
+MODEL_PATH.parent.mkdir(
+    exist_ok=True
+)
 
+joblib.dump(
+    final_model,
+    MODEL_PATH
+)
+
+print("\nModel saved to:")
+print(MODEL_PATH)
