@@ -12,14 +12,22 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
+import mlflow
+import mlflow.sklearn
 
 RANDOM_STATE = 67
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PATH = BASE_DIR / "data" / "properties.csv"
 MODEL_PATH = BASE_DIR / "models" / "house_price_model.pkl"
+MLFLOW_DB_PATH = BASE_DIR / "mlflow.db"
 
+mlflow.set_tracking_uri(
+    f"sqlite:///{MLFLOW_DB_PATH.as_posix()}"
+)
+
+mlflow.set_experiment("house-price-prediction")
+mlflow.set_experiment("house-price-prediction")
 
 # ---------------------------------------------------
 # Load dataset
@@ -418,98 +426,112 @@ final_model = Pipeline([
 # Train
 # ---------------------------------------------------
 
-print("\nTraining model...")
+with mlflow.start_run():
 
-final_model.fit(
-    X_train,
-    y_train
-)
+    print("\nTraining model...")
 
-print("Training completed.")
+    final_model.fit(X_train, y_train)
 
-
-# ---------------------------------------------------
-# Predictions
-# ---------------------------------------------------
-
-y_pred_log = final_model.predict(
-    X_test
-)
+    print("Training completed.")
 
 
-# log-space evaluation
-rmse_log = np.sqrt(
-    mean_squared_error(
+    # predictions
+    y_pred_log = final_model.predict(X_test)
+
+
+    # log-space metrics
+    rmse_log = np.sqrt(
+        mean_squared_error(y_test, y_pred_log)
+    )
+
+    mae_log = mean_absolute_error(
         y_test,
         y_pred_log
     )
-)
 
-mae_log = mean_absolute_error(
-    y_test,
-    y_pred_log
-)
-
-r2_log = r2_score(
-    y_test,
-    y_pred_log
-)
+    r2_log = r2_score(
+        y_test,
+        y_pred_log
+    )
 
 
-# convert log prediction back to rupees
-y_pred_real = np.expm1(
-    y_pred_log
-)
+    # convert predictions back to real prices
+    y_pred_real = np.expm1(y_pred_log)
 
 
-# real-price evaluation
-rmse = np.sqrt(
-    mean_squared_error(
+    # real-price metrics
+    rmse = np.sqrt(
+        mean_squared_error(
+            y_test_real,
+            y_pred_real
+        )
+    )
+
+    mae = mean_absolute_error(
         y_test_real,
         y_pred_real
     )
-)
 
-mae = mean_absolute_error(
-    y_test_real,
-    y_pred_real
-)
-
-r2 = r2_score(
-    y_test_real,
-    y_pred_real
-)
+    r2 = r2_score(
+        y_test_real,
+        y_pred_real
+    )
 
 
-print("\nFinal Model Evaluation")
-
-print(
-    f"Log-space -> "
-    f"RMSE: {rmse_log:.4f} | "
-    f"MAE: {mae_log:.4f} | "
-    f"R2: {r2_log:.4f}"
-)
-
-print(
-    f"Price-space -> "
-    f"RMSE: Rs {rmse:,.0f} | "
-    f"MAE: Rs {mae:,.0f} | "
-    f"R2: {r2:.4f}"
-)
+    # log model parameters
+    mlflow.log_params({
+        "n_estimators": 200,
+        "max_depth": 20,
+        "min_samples_split": 2,
+        "min_samples_leaf": 4,
+        "max_features": 1.0,
+        "random_state": RANDOM_STATE
+    })
 
 
-# ---------------------------------------------------
-# Save model
-# ---------------------------------------------------
+    # log evaluation metrics
+    mlflow.log_metrics({
+        "rmse_log": rmse_log,
+        "mae_log": mae_log,
+        "r2_log": r2_log,
+        "rmse_price": rmse,
+        "mae_price": mae,
+        "r2_price": r2
+    })
 
-MODEL_PATH.parent.mkdir(
-    exist_ok=True
-)
 
-joblib.dump(
-    final_model,
-    MODEL_PATH
-)
+    print("\nFinal Model Evaluation")
 
-print("\nModel saved to:")
-print(MODEL_PATH)
+    print(
+        f"Log-space -> "
+        f"RMSE: {rmse_log:.4f} | "
+        f"MAE: {mae_log:.4f} | "
+        f"R2: {r2_log:.4f}"
+    )
+
+    print(
+        f"Price-space -> "
+        f"RMSE: Rs {rmse:,.0f} | "
+        f"MAE: Rs {mae:,.0f} | "
+        f"R2: {r2:.4f}"
+    )
+
+
+    # save normal joblib model
+    MODEL_PATH.parent.mkdir(exist_ok=True)
+
+    joblib.dump(
+        final_model,
+        MODEL_PATH
+    )
+
+    print("\nModel saved to:")
+    print(MODEL_PATH)
+
+
+    # also log model inside MLflow
+    mlflow.sklearn.log_model(
+        sk_model=final_model,
+        name="house_price_model"
+    )
+
