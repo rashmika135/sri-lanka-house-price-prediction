@@ -1,7 +1,6 @@
 from pathlib import Path
 import ast
 
-#import methods from src.features import 
 from src.features import (
     NUMERIC_FEATURES,
     BOOLEAN_FEATURES,
@@ -10,13 +9,12 @@ from src.features import (
     MODEL_FEATURE_COLUMNS,
     land_size_text_to_perches,
     perches_to_square_feet,
-    prepare_training_features,)
-
+    prepare_training_features,
+)
 
 import joblib
 import numpy as np
 import pandas as pd
-
 
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
@@ -32,17 +30,15 @@ RANDOM_STATE = 67
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_PATH = BASE_DIR / "data" / "properties.csv"
 MODEL_PATH = BASE_DIR / "models" / "house_price_model.pkl"
+TEST_DATA_PATH = BASE_DIR / "data" / "test_data.csv"
 MLFLOW_DB_PATH = BASE_DIR / "mlflow.db"
 
-mlflow.set_tracking_uri(
-    f"sqlite:///{MLFLOW_DB_PATH.as_posix()}"
-)
+mlflow.set_tracking_uri(f"sqlite:///{MLFLOW_DB_PATH.as_posix()}")
 
 mlflow.set_experiment("house-price-prediction")
 
 
 # Load dataset
-
 df = pd.read_csv(DATA_PATH)
 
 print("Dataset shape:", df.shape)
@@ -52,9 +48,7 @@ print("Dataset shape:", df.shape)
 # Keep only houses for sale
 houses_df = df[df["category"] == "Houses For Sale"].copy()
 
-houses_df = houses_df[
-    houses_df["type"] == "for_sale"
-]
+houses_df = houses_df[houses_df["type"] == "for_sale"]
 
 print("Houses dataset shape:", houses_df.shape)
 
@@ -71,42 +65,26 @@ def parse_props(x):
 houses_df["properties"] = houses_df["properties"].apply(parse_props)
 
 
-houses_df["bedrooms"] = houses_df["properties"].apply(
-    lambda x: x.get("Bedrooms")
-)
+houses_df["bedrooms"] = houses_df["properties"].apply(lambda x: x.get("Bedrooms"))
 
-houses_df["bathrooms"] = houses_df["properties"].apply(
-    lambda x: x.get("Bathrooms")
-)
+houses_df["bathrooms"] = houses_df["properties"].apply(lambda x: x.get("Bathrooms"))
 
-houses_df["house_size"] = houses_df["properties"].apply(
-    lambda x: x.get("House size")
-)
+houses_df["house_size"] = houses_df["properties"].apply(lambda x: x.get("House size"))
 
-houses_df["land_size"] = houses_df["properties"].apply(
-    lambda x: x.get("Land size")
-)
+houses_df["land_size"] = houses_df["properties"].apply(lambda x: x.get("Land size"))
 
 
 
 # Clean bedrooms and bathrooms
-
 houses_df["bedrooms"] = pd.to_numeric(
-    houses_df["bedrooms"]
-    .str.replace("+", "", regex=False),
-    errors="coerce"
-)
+    houses_df["bedrooms"].str.replace("+", "", regex=False),errors="coerce")
 
 houses_df["bathrooms"] = pd.to_numeric(
-    houses_df["bathrooms"]
-    .str.replace("+", "", regex=False),
-    errors="coerce"
-)
+    houses_df["bathrooms"].str.replace("+", "", regex=False),errors="coerce")
 
 
 
 # Clean price
-
 houses_df["price"] = pd.to_numeric(
     houses_df["price"]
     .str.replace("Rs", "", regex=False)
@@ -119,63 +97,36 @@ houses_df = houses_df.dropna(subset=["price"])
 
 
 # Clean house size
-
 houses_df["house_size"] = pd.to_numeric(
     houses_df["house_size"]
     .str.replace("sqft", "", regex=False)
     .str.replace(",", "", regex=False),
-    errors="coerce"
-)
+    errors="coerce")
 
 
 
 # Convert land size into perches
-
-houses_df["land_size"] = houses_df["land_size"].apply(
-    land_size_text_to_perches
-)
+houses_df["land_size"] = houses_df["land_size"].apply(land_size_text_to_perches)
 
 # remove missing important values
 houses_df = houses_df.dropna(
-    subset=[
-        "bedrooms",
-        "bathrooms",
-        "house_size",
-        "land_size"
-    ]
-)
-
+subset=["bedrooms","bathrooms","house_size","land_size"])
 
 # remove zero sizes
-houses_df = houses_df[
-    (houses_df["house_size"] != 0) &
-    (houses_df["land_size"] != 0)
-]
-
+houses_df = houses_df[(houses_df["house_size"] != 0) &(houses_df["land_size"] != 0)]
 
 
 # Basic outlier cleaning
+houses_df = houses_df[(houses_df["price"] >= 100000) &(houses_df["price"] < 9e11)]
 
-houses_df = houses_df[
-    (houses_df["price"] >= 100000) &
-    (houses_df["price"] < 9e11)
-]
-
-houses_df = houses_df[
-    houses_df["house_size"] <= 20000
-]
+houses_df = houses_df[houses_df["house_size"] <= 20000]
 
 
 
 # Convert land perches -> square feet
+houses_df["land_size"] = houses_df["land_size"].apply(perches_to_square_feet)
 
-houses_df["land_size"] = houses_df["land_size"].apply(
-    perches_to_square_feet
-)
-
-houses_df = houses_df[
-    houses_df["land_size"] <= 27225
-]
+houses_df = houses_df[houses_df["land_size"] <= 27225]
 
 
 # same 1% - 99% filtering used during experimentation
@@ -186,20 +137,16 @@ for col in ["price", "house_size", "land_size"]:
 
     houses_df = houses_df[
         (houses_df[col] >= lower) &
-        (houses_df[col] <= upper)
-    ]
+        (houses_df[col] <= upper)]
+
 
 
 # Log target
-
-houses_df["log_price"] = np.log1p(
-    houses_df["price"]
-)
+houses_df["log_price"] = np.log1p( houses_df["price"])
 
 
 
 # Exact area
-
 def parse_area(x):
 
     try:
@@ -209,26 +156,17 @@ def parse_area(x):
         return {}
 
 
-houses_df["area"] = houses_df["area"].apply(
-    parse_area
-)
+houses_df["area"] = houses_df["area"].apply( parse_area)
 
-houses_df["exact_area"] = houses_df["area"].apply(
-    lambda x: x.get("name")
-)
+houses_df["exact_area"] = houses_df["area"].apply( lambda x: x.get("name"))
 
 
-# ---------------------------------------------------
+
 # Date feature
-
-houses_df["posted_date"] = pd.to_datetime(
-    houses_df["posted_date"],
-    errors="coerce"
-)
+houses_df["posted_date"] = pd.to_datetime(houses_df["posted_date"],errors="coerce")
 
 houses_df = houses_df.dropna(
-    subset=["posted_date"]
-)
+subset=["posted_date"])
 
 # All model-specific feature engineering is shared with the API.
 # Keep posted_date parsed and land_size converted to square feet above.
@@ -241,10 +179,8 @@ high_card_features = HIGH_CARD_FEATURES
 feature_cols = MODEL_FEATURE_COLUMNS
 
 
-# ---------------------------------------------------
-# X and y
-# ---------------------------------------------------
 
+# X and y
 X = houses_df[feature_cols]
 
 y = houses_df["log_price"]
@@ -256,23 +192,11 @@ y_real = houses_df["price"]
 print("Final dataset shape:", X.shape)
 
 
-# ---------------------------------------------------
 # Train / test split
-# ---------------------------------------------------
-
-X_train, X_test, y_train, y_test, _, y_test_real = train_test_split(
-    X,
-    y,
-    y_real,
-    test_size=0.2,
-    random_state=RANDOM_STATE
-)
+X_train, X_test, y_train, y_test, _, y_test_real = train_test_split(X,y,y_real,test_size=0.2,random_state=RANDOM_STATE)
 
 
-# ---------------------------------------------------
 # Preprocessing
-# ---------------------------------------------------
-
 preprocessor = ColumnTransformer(
     transformers=[
 
@@ -308,31 +232,21 @@ preprocessor = ColumnTransformer(
 )
 
 
-# ---------------------------------------------------
-# Final Random Forest
-# ---------------------------------------------------
 
-model = RandomForestRegressor(
-    n_estimators=200,
+# Final Random Forest
+model = RandomForestRegressor(n_estimators=200,
     max_depth=20,
     min_samples_split=2,
     min_samples_leaf=4,
     max_features=1.0,
     random_state=RANDOM_STATE,
-    n_jobs=-1
-)
+    n_jobs=-1)
 
 
-final_model = Pipeline([
-    ("preprocess", preprocessor),
-    ("model", model)
-])
+final_model = Pipeline([("preprocess", preprocessor), ("model", model)])
 
 
-# ---------------------------------------------------
 # Train
-# ---------------------------------------------------
-
 with mlflow.start_run():
 
     print("\nTraining model...")
@@ -347,19 +261,11 @@ with mlflow.start_run():
 
 
     # log-space metrics
-    rmse_log = np.sqrt(
-        mean_squared_error(y_test, y_pred_log)
-    )
+    rmse_log = np.sqrt(mean_squared_error(y_test, y_pred_log) )
 
-    mae_log = mean_absolute_error(
-        y_test,
-        y_pred_log
-    )
+    mae_log = mean_absolute_error(y_test, y_pred_log )
 
-    r2_log = r2_score(
-        y_test,
-        y_pred_log
-    )
+    r2_log = r2_score(y_test,y_pred_log)
 
 
     # convert predictions back to real prices
@@ -367,61 +273,42 @@ with mlflow.start_run():
 
 
     # real-price metrics
-    rmse = np.sqrt(
-        mean_squared_error(
-            y_test_real,
-            y_pred_real
-        )
-    )
+    rmse = np.sqrt(mean_squared_error( y_test_real,y_pred_real))
 
-    mae = mean_absolute_error(
-        y_test_real,
-        y_pred_real
-    )
+    mae = mean_absolute_error(y_test_real, y_pred_real)
 
-    r2 = r2_score(
-        y_test_real,
-        y_pred_real
-    )
+    r2 = r2_score(y_test_real, y_pred_real)
 
 
     # log model parameters
-    mlflow.log_params({
-        "n_estimators": 200,
+    mlflow.log_params({"n_estimators": 200,
         "max_depth": 20,
         "min_samples_split": 2,
         "min_samples_leaf": 4,
         "max_features": 1.0,
-        "random_state": RANDOM_STATE
-    })
+        "random_state": RANDOM_STATE})
 
 
     # log evaluation metrics
-    mlflow.log_metrics({
-        "rmse_log": rmse_log,
+    mlflow.log_metrics({ "rmse_log": rmse_log,
         "mae_log": mae_log,
         "r2_log": r2_log,
         "rmse_price": rmse,
         "mae_price": mae,
-        "r2_price": r2
-    })
+        "r2_price": r2})
 
 
     print("\nFinal Model Evaluation")
 
-    print(
-        f"Log-space -> "
+    print(f"Log-space -> "
         f"RMSE: {rmse_log:.4f} | "
         f"MAE: {mae_log:.4f} | "
-        f"R2: {r2_log:.4f}"
-    )
+        f"R2: {r2_log:.4f}")
 
-    print(
-        f"Price-space -> "
+    print(f"Price-space -> "
         f"RMSE: Rs {rmse:,.0f} | "
         f"MAE: Rs {mae:,.0f} | "
-        f"R2: {r2:.4f}"
-    )
+        f"R2: {r2:.4f}")
 
 
     # save normal joblib model
@@ -429,16 +316,22 @@ with mlflow.start_run():
 
     joblib.dump(
         final_model,
-        MODEL_PATH
-    )
+        MODEL_PATH)
 
     print("\nModel saved to:")
     print(MODEL_PATH)
+
+    # Save the same test records used to evaluate this model.
+    test_data = X_test.copy()
+    test_data["price"] = y_test_real
+    test_data.to_csv(TEST_DATA_PATH, index=False)
+
+    print("Test data saved to:")
+    print(TEST_DATA_PATH)
 
 
     # also log model inside MLflow
     mlflow.sklearn.log_model(
         sk_model=final_model,
-        name="house_price_model"
-    )
+        name="house_price_model")
 
