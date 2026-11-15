@@ -1,10 +1,22 @@
 from pathlib import Path
-from datetime import datetime
 import ast
+
+#import methods from src.features import 
+from src.features import (
+    NUMERIC_FEATURES,
+    BOOLEAN_FEATURES,
+    CATEGORICAL_FEATURES,
+    HIGH_CARD_FEATURES,
+    MODEL_FEATURE_COLUMNS,
+    land_size_text_to_perches,
+    perches_to_square_feet,
+    prepare_training_features,)
+
 
 import joblib
 import numpy as np
 import pandas as pd
+
 
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
@@ -27,21 +39,17 @@ mlflow.set_tracking_uri(
 )
 
 mlflow.set_experiment("house-price-prediction")
-mlflow.set_experiment("house-price-prediction")
 
-# ---------------------------------------------------
+
 # Load dataset
-# ---------------------------------------------------
 
 df = pd.read_csv(DATA_PATH)
 
 print("Dataset shape:", df.shape)
 
 
-# ---------------------------------------------------
-# Keep only houses for sale
-# ---------------------------------------------------
 
+# Keep only houses for sale
 houses_df = df[df["category"] == "Houses For Sale"].copy()
 
 houses_df = houses_df[
@@ -51,10 +59,8 @@ houses_df = houses_df[
 print("Houses dataset shape:", houses_df.shape)
 
 
-# ---------------------------------------------------
-# Extract values from properties column
-# ---------------------------------------------------
 
+# Extract values from properties column
 def parse_props(x):
     try:
         return ast.literal_eval(x)
@@ -82,9 +88,8 @@ houses_df["land_size"] = houses_df["properties"].apply(
 )
 
 
-# ---------------------------------------------------
+
 # Clean bedrooms and bathrooms
-# ---------------------------------------------------
 
 houses_df["bedrooms"] = pd.to_numeric(
     houses_df["bedrooms"]
@@ -99,9 +104,8 @@ houses_df["bathrooms"] = pd.to_numeric(
 )
 
 
-# ---------------------------------------------------
+
 # Clean price
-# ---------------------------------------------------
 
 houses_df["price"] = pd.to_numeric(
     houses_df["price"]
@@ -113,9 +117,8 @@ houses_df["price"] = pd.to_numeric(
 houses_df = houses_df.dropna(subset=["price"])
 
 
-# ---------------------------------------------------
+
 # Clean house size
-# ---------------------------------------------------
 
 houses_df["house_size"] = pd.to_numeric(
     houses_df["house_size"]
@@ -125,44 +128,12 @@ houses_df["house_size"] = pd.to_numeric(
 )
 
 
-# ---------------------------------------------------
+
 # Convert land size into perches
-# ---------------------------------------------------
-
-def convert_land_size(x):
-
-    if pd.isna(x):
-        return None
-
-    x = x.strip()
-
-    if "acres" in x:
-
-        num = float(
-            x.replace("acres", "")
-            .replace(",", "")
-            .strip()
-        )
-
-        return num * 160
-
-    elif "perches" in x:
-
-        num = float(
-            x.replace("perches", "")
-            .replace(",", "")
-            .strip()
-        )
-
-        return num
-
-    return None
-
 
 houses_df["land_size"] = houses_df["land_size"].apply(
-    convert_land_size
+    land_size_text_to_perches
 )
-
 
 # remove missing important values
 houses_df = houses_df.dropna(
@@ -182,9 +153,8 @@ houses_df = houses_df[
 ]
 
 
-# ---------------------------------------------------
+
 # Basic outlier cleaning
-# ---------------------------------------------------
 
 houses_df = houses_df[
     (houses_df["price"] >= 100000) &
@@ -196,12 +166,11 @@ houses_df = houses_df[
 ]
 
 
-# ---------------------------------------------------
-# Convert land perches -> square feet
-# ---------------------------------------------------
 
-houses_df["land_size"] = (
-    houses_df["land_size"] * 272.25
+# Convert land perches -> square feet
+
+houses_df["land_size"] = houses_df["land_size"].apply(
+    perches_to_square_feet
 )
 
 houses_df = houses_df[
@@ -221,18 +190,15 @@ for col in ["price", "house_size", "land_size"]:
     ]
 
 
-# ---------------------------------------------------
 # Log target
-# ---------------------------------------------------
 
 houses_df["log_price"] = np.log1p(
     houses_df["price"]
 )
 
 
-# ---------------------------------------------------
+
 # Exact area
-# ---------------------------------------------------
 
 def parse_area(x):
 
@@ -254,7 +220,6 @@ houses_df["exact_area"] = houses_df["area"].apply(
 
 # ---------------------------------------------------
 # Date feature
-# ---------------------------------------------------
 
 houses_df["posted_date"] = pd.to_datetime(
     houses_df["posted_date"],
@@ -265,73 +230,15 @@ houses_df = houses_df.dropna(
     subset=["posted_date"]
 )
 
-houses_df["years_since_posted"] = (
-    datetime.now().year
-    - houses_df["posted_date"].dt.year
-)
+# All model-specific feature engineering is shared with the API.
+# Keep posted_date parsed and land_size converted to square feet above.
+houses_df = prepare_training_features(houses_df)
 
-
-# ---------------------------------------------------
-# Feature engineering
-# ---------------------------------------------------
-
-houses_df["house_size_per_land_size"] = (
-    houses_df["house_size"]
-    / houses_df["land_size"]
-)
-
-
-# ---------------------------------------------------
-# Boolean columns
-# ---------------------------------------------------
-
-boolean_features = [
-    "is_verified",
-    "is_member",
-    "is_authorized_dealer"
-]
-
-for col in boolean_features:
-
-    houses_df[col] = (
-        houses_df[col]
-        .astype(str)
-        .str.lower()
-        .eq("true")
-        .astype(int)
-    )
-
-
-# ---------------------------------------------------
-# Feature groups
-# ---------------------------------------------------
-
-numeric_features = [
-    "bedrooms",
-    "bathrooms",
-    "house_size",
-    "land_size",
-    "house_size_per_land_size",
-    "years_since_posted"
-]
-
-categorical_features = [
-    "geo_region",
-    "membership_level"
-]
-
-high_card_features = [
-    "location",
-    "exact_area"
-]
-
-
-feature_cols = (
-    numeric_features
-    + boolean_features
-    + categorical_features
-    + high_card_features
-)
+numeric_features = NUMERIC_FEATURES
+boolean_features = BOOLEAN_FEATURES
+categorical_features = CATEGORICAL_FEATURES
+high_card_features = HIGH_CARD_FEATURES
+feature_cols = MODEL_FEATURE_COLUMNS
 
 
 # ---------------------------------------------------
