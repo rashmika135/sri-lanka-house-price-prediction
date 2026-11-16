@@ -1,8 +1,32 @@
+# Local Python files and development tools
 venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+.idea/
+
+# Training data and experiments are not needed by the API
 data/
 notebooks/
 mlruns/
 mlflow.db
+reports/
+test/
+tests/
+
+# Archives, credentials, and version control
 .git/
-__pycache__/
-*.pyc
+.github/
+.env
+.env.*
+*.rar
+*.zip
+*.log
+
+# Include only the model used by the API, not backups.
+models/*
+!models/house_price_model.pkl

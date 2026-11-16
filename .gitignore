@@ -1,6 +1,39 @@
+
+# Virtual environments
 venv/
+.venv/
+
+# Python cache
 __pycache__/
-.ipynb_checkpoints/
-.env
 *.pyc
-data/properties.csv
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+.env.*
+
+# Datasets
+data/
+
+# Trained models
+models/*.pkl
+
+# MLflow files
+mlruns/
+mlflow.db
+
+# Generated evaluation reports
+reports/
+
+# Temporary files
+*.log
+*.rar
+*.zip
+
+# Editor settings
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
