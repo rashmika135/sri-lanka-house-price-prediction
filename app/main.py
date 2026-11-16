@@ -7,6 +7,8 @@ import math
 import joblib
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.features import prepare_inference_features
@@ -14,13 +16,14 @@ from src.features import prepare_inference_features
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_PATH = BASE_DIR / "models" / "house_price_model.pkl"
+FRONTEND_DIR = BASE_DIR / "frontend"
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load the model once when the API starts.
+    # Load the trained model once when the application starts.
     if not MODEL_PATH.exists():
         raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
 
@@ -33,6 +36,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# Serve the HTML, CSS and JavaScript from the frontend folder.
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 
 class HouseInput(BaseModel):
@@ -61,9 +67,9 @@ class HouseInput(BaseModel):
         return year
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def home():
-    return {"message": "House Price Prediction API is running"}
+    return FileResponse(FRONTEND_DIR / "index.html")
 
 
 @app.get("/health")

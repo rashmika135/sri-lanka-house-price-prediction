@@ -1,0 +1,9 @@
+# Prediction API only. No MLflow, notebooks, or testing packages.(to reduce the package size)
+
+fastapi==0.141.1
+uvicorn==0.52.1
+pandas==2.3.3
+numpy==2.5.2
+scikit-learn==1.9.0
+joblib==1.5.3
+
